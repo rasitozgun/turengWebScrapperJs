@@ -1,5 +1,4 @@
 import React, { useState } from "react";
-import { parse as parseHtml } from "parse5";
 
 function App() {
   const [word, setWord] = useState("");
@@ -10,73 +9,57 @@ function App() {
     fetchData(word);
   };
 
+  const htmlparser2 = require("htmlparser2");
+
   async function fetchData(word) {
     const url = `https://tureng.com/en/turkish-english/${word}`;
     const response = await fetch(url);
     const html = await response.text();
 
-    const root = parseHtml(html);
-    let table;
-    function searchForTable(node) {
-      if (node.nodeName === "table") {
-        table = node;
-        return;
-      }
-      if (node.childNodes) {
-        node.childNodes.forEach((child) => searchForTable(child));
-      }
-    }
+    const rows = [];
+    let inTable = false;
+    let inRow = false;
+    let currentRow = [];
 
-    searchForTable(root);
+    const parser = new htmlparser2.Parser(
+      {
+        onopentag: (name, attribs) => {
+          if (name === "table") {
+            inTable = true;
+          } else if (name === "tr" && inTable) {
+            inRow = true;
+          } else if (name === "td" && inRow) {
+            currentRow.push("");
+          }
+        },
+        ontext: (text) => {
+          if (inRow) {
+            currentRow[currentRow.length - 1] += text;
+          }
+        },
+        onclosetag: (name) => {
+          if (name === "table") {
+            inTable = false;
+          } else if (name === "tr") {
+            inRow = false;
+            if (currentRow.length > 1) {
+              rows.push({
+                id: currentRow[0],
+                category: currentRow[1],
+                translation: currentRow[3],
+              });
+            }
+            currentRow = [];
+          }
+        },
+      },
+      { decodeEntities: true }
+    );
 
-    let tbody;
-    table.childNodes.forEach((node) => {
-      if (node.nodeName === "tbody") {
-        tbody = node;
-      }
-    });
-    if (tbody) {
-      const rows = [];
+    parser.write(html);
+    parser.end();
 
-      function searchForTr(node) {
-        if (node.nodeName === "tr") {
-          rows.push(node);
-          return;
-        }
-        if (node.childNodes) {
-          node.childNodes.forEach((child) => searchForTr(child));
-        }
-      }
-
-      searchForTr(tbody);
-
-      rows.forEach((row) => {
-        const cells = row.childNodes.filter((node) => node.nodeName === "td");
-        if (cells.length > 1) {
-          const wordNode = cells[2].childNodes.find(
-            (node) => node.nodeName === "a"
-          );
-          const word = wordNode
-            ? wordNode.childNodes[0].value
-            : cells[2].childNodes[0].value;
-          const translationNode = cells[3].childNodes.find(
-            (node) => node.nodeName === "a"
-          );
-          const translation = translationNode
-            ? translationNode.childNodes[0].value
-            : cells[3].childNodes[0].value;
-          const entry = {
-            id: cells[0].childNodes[0].value,
-            category: cells[1].childNodes[0].value,
-            word,
-            translation,
-          };
-          data.push(entry);
-        }
-      });
-
-      setData(data);
-    }
+    setData(rows);
   }
 
   return (
@@ -97,7 +80,6 @@ function App() {
           <tr>
             <th scope="col">#</th>
             <th scope="col">Category</th>
-            <th scope="col">Word</th>
             <th scope="col">Translate</th>
           </tr>
         </thead>
@@ -106,7 +88,6 @@ function App() {
             <tr key={entry.id}>
               <th scope="row">{entry.id}</th>
               <td>{entry.category}</td>
-              <td>{entry.word}</td>
               <td>{entry.translation}</td>
             </tr>
           </tbody>
